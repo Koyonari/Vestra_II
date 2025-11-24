@@ -1,5 +1,4 @@
 name: Stock Analysis Pipeline
-
 on:
   schedule:
     # Weekdays (Mon–Fri): every 2 hours
@@ -9,10 +8,8 @@ on:
   workflow_dispatch: # Manual trigger
 
 env:
-  SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-  SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-  NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-  NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+  NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
   MAX_STOCKS: 100
   DAYS_BACK: 90
   PREDICTION_DAYS: 30
@@ -22,37 +19,36 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
+      
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: "3.11"
           cache: "pip"
-
+      
       - name: Install dependencies
         run: |
           cd scripts/stock-analysis
-          # Ensure pip in the selected Python is used
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
           python -m nltk.downloader vader_lexicon
-
-      - name: Run analysis pipeline
-        env:
-          PYTHONPATH: scripts/stock-analysis
-        run: |
-          # Ensure we run from the repository root so relative paths resolve the same as local runs
-          cd scripts/stock-analysis
-          # Export PYTHONPATH for the current shell (redundant with env but explicit for clarity)
-          export PYTHONPATH=$(pwd):$PYTHONPATH
-          python main.py
+      
       - name: Check required env
         run: |
           python - <<'PY'
           import os, json
           keys = ["NEXT_PUBLIC_SUPABASE_URL","NEXT_PUBLIC_SUPABASE_ANON_KEY"]
-          print(json.dumps({k: bool(os.getenv(k)) for k in keys}))
+          result = {k: bool(os.getenv(k)) for k in keys}
+          print(json.dumps(result, indent=2))
+          for k, v in result.items():
+              print(f"{k}: {'✓ SET' if v else '✗ NOT SET'}")
           PY
+      
+      - name: Run analysis pipeline
+        run: |
+          cd scripts/stock-analysis
+          python main.py
+      
       - name: Verify installed packages
         if: always()
         run: |
@@ -71,5 +67,5 @@ jobs:
                   out[p] = ver
               else:
                   out[p] = None
-          print(json.dumps(out))
+          print(json.dumps(out, indent=2))
           PY
