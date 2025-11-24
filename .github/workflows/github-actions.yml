@@ -1,22 +1,39 @@
-name: Vestra
+name: Stock Analysis Pipeline
 
 on:
-  push:
   schedule:
     # Weekdays (Mon–Fri): every 2 hours
     - cron: "0 5-23/2 * * 1-5"
     # Weekends (Sat–Sun): every 6 hours
     - cron: "0 5-23/6 * * 6,0"
+  workflow_dispatch: # Manual trigger
+
+env:
+  SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+  SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+  MAX_STOCKS: 100
+  DAYS_BACK: 90
+  PREDICTION_DAYS: 30
 
 jobs:
-  Explore-GitHub-Actions:
+  analyze-stocks:
     runs-on: ubuntu-latest
     steps:
-      - run: echo "The job was triggered by a ${{ github.event_name }} event."
-      - name: Check out repository code
-        uses: actions/checkout@v4
-      - run: echo "The ${{ github.repository }} repository has been cloned to the runner."
-      - name: List files in the repository
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+          cache: "pip"
+
+      - name: Install dependencies
         run: |
-          ls ${{ github.workspace }}
-      - run: echo "This job's status is ${{ job.status }}."
+          cd scripts/stock-analysis
+          pip install -r requirements.txt
+          python -m nltk.downloader vader_lexicon
+
+      - name: Run analysis pipeline
+        run: |
+          cd scripts/stock-analysis
+          python main.py
