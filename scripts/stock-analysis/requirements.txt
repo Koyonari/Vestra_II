@@ -14,7 +14,7 @@ yfinance>=0.2.28
 nltk>=3.8.1
 
 # Database
-supabase-py>=2.0.0
+supabase>=2.0.0
 postgrest>=0.10.6
 
 # Environment variables

@@ -24,7 +24,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: "3.10"
+          python-version: "3.11"
           cache: "pip"
 
       - name: Install dependencies
@@ -44,3 +44,24 @@ jobs:
           # Export PYTHONPATH for the current shell (redundant with env but explicit for clarity)
           export PYTHONPATH=$(pwd):$PYTHONPATH
           python main.py
+
+      - name: Verify installed packages
+        if: always()
+        run: |
+          python - <<'PY'
+          import importlib, importlib.util, json
+          pkgs = ['pandas','numpy','yfinance','nltk','supabase']
+          out = {}
+          for p in pkgs:
+              spec = importlib.util.find_spec(p)
+              if spec:
+                  try:
+                      m = importlib.import_module(p)
+                      ver = getattr(m, '__version__', 'unknown')
+                  except Exception:
+                      ver = 'import-error'
+                  out[p] = ver
+              else:
+                  out[p] = None
+          print(json.dumps(out))
+          PY
