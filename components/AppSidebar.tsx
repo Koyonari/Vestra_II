@@ -44,7 +44,7 @@ export function AppSidebar() {
   const { user, isSignedIn } = useUser()
   const { signOut, openSignIn } = useClerk()
   
-  const [isProfileOpen, setIsProfileOpen] = useState(false)
+  const [isProfileOpen] = useState(false)
   
   // Theme management
   const [isDarkMode, setIsDarkMode] = useState(false)

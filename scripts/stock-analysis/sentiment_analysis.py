@@ -1,5 +1,6 @@
 import pandas as pd
 import nltk
+import time
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 from datetime import datetime, timedelta
 import os
@@ -43,15 +44,36 @@ class SentimentAnalyzer:
         
         print(f"Analyzing sentiment for {ticker} ({name})...")
         
-        # Get news from multiple sources
-        finviz_df = scrape_finviz_news(ticker)
-        yahoo_df = scrape_yahoo_finance_news(ticker)
+        # Get news from multiple sources with retries
+        attempts = 0
+        max_attempts = 3
+        sources_data = []
         
-        # Combine news from different sources
-        news_df = pd.concat([finviz_df, yahoo_df], ignore_index=True)
+        while attempts < max_attempts and not sources_data:
+            if attempts > 0:
+                print(f"Retrying news fetch for {ticker} (attempt {attempts+1}/{max_attempts})...")
+                time.sleep(5)  # Wait between retries
+            
+            # Try Finviz first
+            finviz_df = scrape_finviz_news(ticker)
+            if not finviz_df.empty:
+                sources_data.append(finviz_df)
+            
+            # Try Yahoo Finance
+            yahoo_df = scrape_yahoo_finance_news(ticker)
+            if not yahoo_df.empty:
+                sources_data.append(yahoo_df)
+            
+            attempts += 1
+            
+            if sources_data:  # If we got news from any source
+                break
+        
+        # Combine available news
+        news_df = pd.concat(sources_data, ignore_index=True) if sources_data else pd.DataFrame()
         
         if news_df.empty:
-            print(f"No news found for {ticker}")
+            print(f"No news found for {ticker} after {attempts} attempts")
             return self._default_neutral_sentiment(ticker, name)
         
         # Add sentiment analysis

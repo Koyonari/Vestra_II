@@ -17,14 +17,54 @@ def get_random_user_agent():
 
 
 def get_top_101_stocks():
-    """Get the list of top stocks by market cap from S&P 500"""
+    """Get a comprehensive list of top stocks by combining multiple sources"""
     try:
-        # Get S&P 500 components
-        sp500_url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
-        sp500_table = pd.read_html(sp500_url)
-        sp500_df = sp500_table[0]
+        all_tickers = set()
         
-        tickers = sp500_df['Symbol'].tolist()
+        # Try S&P 500 components
+        try:
+            headers = {
+                'User-Agent': get_random_user_agent(),
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+                'Connection': 'keep-alive',
+            }
+            sp500_url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+            sp500_response = requests.get(sp500_url, headers=headers)
+            from io import StringIO
+            sp500_table = pd.read_html(StringIO(sp500_response.text))
+            sp500_df = sp500_table[0]
+            all_tickers.update(sp500_df['Symbol'].str.strip().tolist())
+        except Exception as e:
+            print(f"Warning: Could not fetch S&P 500 data: {e}")
+        
+        # Add NASDAQ 100 components
+        try:
+            ndx_url = "https://en.wikipedia.org/wiki/Nasdaq-100"
+            headers['User-Agent'] = get_random_user_agent()  # Rotate user agent
+            ndx_response = requests.get(ndx_url, headers=headers)
+            ndx_table = pd.read_html(StringIO(ndx_response.text))
+            ndx_df = next((df for df in ndx_table if 'Ticker' in df.columns), None)
+            if ndx_df is not None:
+                all_tickers.update(ndx_df['Ticker'].str.strip().tolist())
+        except Exception as e:
+            print(f"Warning: Could not fetch NASDAQ 100 data: {e}")
+        
+        # Add Dow Jones components
+        try:
+            dow_url = "https://en.wikipedia.org/wiki/Dow_Jones_Industrial_Average"
+            headers['User-Agent'] = get_random_user_agent()  # Rotate user agent
+            dow_response = requests.get(dow_url, headers=headers)
+            dow_table = pd.read_html(StringIO(dow_response.text))
+            dow_df = next((df for df in dow_table if 'Symbol' in df.columns), None)
+            if dow_df is not None:
+                all_tickers.update(dow_df['Symbol'].str.strip().tolist())
+        except Exception as e:
+            print(f"Warning: Could not fetch Dow Jones data: {e}")
+            
+        # Clean tickers and add fallback if needed
+        all_tickers.update(FALLBACK_TICKERS)
+        tickers = [t.strip().replace('.','-') for t in all_tickers if t and isinstance(t, str)]
         print(f"Fetching market cap data for {len(tickers)} stocks...")
         
         # Get market cap data in chunks
@@ -54,7 +94,8 @@ def get_top_101_stocks():
                 time.sleep(random.uniform(REQUEST_DELAY_MIN, REQUEST_DELAY_MAX))
             
             results.extend(chunk_data)
-            print(f"Processed {len(results)} stocks...")
+            success_count = len([r for r in chunk_data if r['market_cap'] > 0])
+            print(f"Processed chunk {idx+1}/{len(ticker_chunks)} ({success_count} successful)")
             
             if idx < len(ticker_chunks) - 1:  # Don't sleep after last chunk
                 time.sleep(CHUNK_DELAY)
@@ -64,9 +105,13 @@ def get_top_101_stocks():
         stocks_df = stocks_df[stocks_df['market_cap'] > 0]  # Filter out invalid entries
         stocks_df = stocks_df.sort_values('market_cap', ascending=False).reset_index(drop=True)
         
-        # Take top 100
-        top_100 = stocks_df.head(100)
-        return top_100
+        print(f"\nFound {len(stocks_df)} valid stocks with market cap data")
+        if len(stocks_df) < 100:
+            print("Warning: Less than 100 stocks available for analysis")
+        
+        # Take top 100 by market cap
+        top_stocks = stocks_df.head(100)
+        return top_stocks
     
     except Exception as e:
         print(f"Error getting top stocks: {e}")
@@ -115,94 +160,157 @@ def scrape_finviz_news(ticker):
         'Accept-Language': 'en-US,en;q=0.5',
         'Connection': 'keep-alive',
         'Upgrade-Insecure-Requests': '1',
-        'Cache-Control': 'max-age=0'
+        'Cache-Control': 'max-age=0',
+        'Referer': 'https://finviz.com/'  # Add referrer
     }
     
-    try:
-        time.sleep(random.uniform(REQUEST_DELAY_MIN, REQUEST_DELAY_MAX))
-        
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status()
-        
-        soup = BeautifulSoup(response.text, 'html.parser')
-        news_table = soup.find(id='news-table')
-        
-        if not news_table:
-            print(f"Warning: Could not find news table for {ticker} on Finviz")
-            return pd.DataFrame()
-        
-        news_data = []
-        current_date = datetime.now().strftime('%m/%d/%y')
-        
-        for row in news_table.find_all('tr'):
-            if not row.td:
-                continue
-            
-            date_cell = row.td.text.strip().split() if row.td and row.td.text else []
-            
-            # Parse date and time
-            date_str = current_date
-            time_str = ''
-            
-            if len(date_cell) >= 1:
-                if ':' in date_cell[0]:  # Just time, use today's date
-                    time_str = date_cell[0]
-                elif len(date_cell) >= 2:  # Date and time
-                    date_str = date_cell[0]
-                    time_str = date_cell[1] if ':' in date_cell[1] else ''
-            
-            headline = row.a.text.strip() if row.a else "No headline"
-            source = row.span.text.strip() if row.span else "Unknown"
-            
-            news_data.append([date_str, time_str, headline, source])
-        
-        df = pd.DataFrame(news_data, columns=['date', 'time', 'headline', 'source'])
-        return df
+    max_retries = 3
+    retry_delay = 5
     
-    except Exception as e:
-        print(f"Error scraping {ticker} news from Finviz: {e}")
-        return pd.DataFrame()
+    for attempt in range(max_retries):
+        try:
+            if attempt > 0:
+                print(f"Retry {attempt}/{max_retries} for {ticker}...")
+                time.sleep(retry_delay)
+            
+            time.sleep(random.uniform(REQUEST_DELAY_MIN, REQUEST_DELAY_MAX))
+            
+            # First try to verify the ticker exists
+            response = requests.get(url, headers=headers, timeout=15)
+            response.raise_for_status()
+            
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Check if we got a valid page
+            if "is not found" in soup.text or "Error" in soup.title.text:
+                print(f"Warning: {ticker} not found on Finviz")
+                return pd.DataFrame()
+            
+            news_table = soup.find(id='news-table')
+            if not news_table:
+                print(f"Warning: No news table found for {ticker} on Finviz")
+                continue  # Try again if we didn't get the news table
+            
+            news_data = []
+            current_date = datetime.now().strftime('%m/%d/%y')
+            
+            for row in news_table.find_all('tr'):
+                if not row.td:
+                    continue
+                
+                try:
+                    date_cell = row.td.text.strip().split() if row.td and row.td.text else []
+                    
+                    # Parse date and time
+                    date_str = current_date
+                    time_str = ''
+                    
+                    if len(date_cell) >= 1:
+                        if ':' in date_cell[0]:  # Just time, use today's date
+                            time_str = date_cell[0]
+                        elif len(date_cell) >= 2:  # Date and time
+                            date_str = date_cell[0]
+                            time_str = date_cell[1] if ':' in date_cell[1] else ''
+                    
+                    headline = row.a.text.strip() if row.a else None
+                    source = row.span.text.strip() if row.span else "Unknown"
+                    
+                    if headline and len(headline) > 5:  # Basic validation
+                        news_data.append([date_str, time_str, headline, source])
+                
+                except Exception as e:
+                    print(f"Warning: Error parsing news row for {ticker}: {e}")
+                    continue
+            
+            if news_data:  # If we found any valid news
+                return pd.DataFrame(news_data, columns=['date', 'time', 'headline', 'source'])
+            
+        except requests.exceptions.RequestException as e:
+            print(f"Warning: Request failed for {ticker} on attempt {attempt+1}: {e}")
+            if attempt == max_retries - 1:
+                print(f"Error: Failed to scrape {ticker} news from Finviz after {max_retries} attempts")
+                return pd.DataFrame()
+        except Exception as e:
+            print(f"Warning: Unexpected error for {ticker} on attempt {attempt+1}: {e}")
+            if attempt == max_retries - 1:
+                print(f"Error: Failed to process {ticker} news after {max_retries} attempts")
+                return pd.DataFrame()
+    
+    return pd.DataFrame()
 
 
 def scrape_yahoo_finance_news(ticker):
     """Scrape news from Yahoo Finance for a specific ticker"""
-    url = f'https://finance.yahoo.com/quote/{ticker}/news'
+    base_url = f'https://finance.yahoo.com/quote/{ticker}'
+    
+    # Try different URLs if one fails
+    urls = [
+        f'{base_url}/news',
+        base_url,  # Main quote page often has news
+        f'{base_url}?p={ticker}'  # Alternative format
+    ]
+    
     headers = {
         'User-Agent': get_random_user_agent(),
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5'
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+        'Cache-Control': 'max-age=0'
     }
     
-    try:
-        time.sleep(random.uniform(REQUEST_DELAY_MIN, REQUEST_DELAY_MAX))
-        
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status()
-        
-        soup = BeautifulSoup(response.text, 'html.parser')
-        news_items = soup.select('li.js-stream-content')
-        
-        news_data = []
-        for item in news_items:
-            headline_elem = item.select_one('h3') or item.select_one('h4')
-            time_elem = item.select_one('time')
+    news_data = []
+    for url in urls:
+        try:
+            time.sleep(random.uniform(REQUEST_DELAY_MIN, REQUEST_DELAY_MAX))
             
-            if headline_elem:
-                headline = headline_elem.text.strip()
-                timestamp = time_elem.text.strip() if time_elem else 'Unknown'
-                news_data.append([
-                    datetime.now().strftime('%m/%d/%y'), 
-                    timestamp, 
-                    headline, 
-                    'Yahoo Finance'
-                ])
-        
-        df = pd.DataFrame(news_data, columns=['date', 'time', 'headline', 'source'])
-        return df
+            response = requests.get(url, headers=headers, timeout=15)
+            response.raise_for_status()
+            
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Try different selectors for news items
+            news_items = (
+                soup.select('div[data-test="story"]') or  # New Yahoo Finance selector
+                soup.select('li.js-stream-content') or
+                soup.select('div.news-container') or
+                soup.find_all('h3') or  # Generic h3 selector
+                soup.find_all('a', {'data-test': 'quoteLink'})  # Alternative news links
+            )
+            
+            if news_items:
+                for item in news_items:
+                    headline_elem = (
+                        item.select_one('h3') or 
+                        item.select_one('h4') or 
+                        item.select_one('a') or 
+                        item
+                    )
+                    
+                    if headline_elem:
+                        headline = headline_elem.text.strip()
+                        if headline and len(headline) > 5:  # Basic validation
+                            news_data.append([
+                                datetime.now().strftime('%m/%d/%y'),
+                                'N/A',
+                                headline,
+                                'Yahoo Finance'
+                            ])
+                
+                if news_data:  # If we found news, no need to try other URLs
+                    break
+                    
+        except requests.exceptions.RequestException as e:
+            print(f"Warning: Failed to fetch {url} - {str(e)}")
+            continue
+        except Exception as e:
+            print(f"Warning: Error processing {url} - {str(e)}")
+            continue
     
-    except Exception as e:
-        print(f"Error scraping Yahoo Finance news for {ticker}: {e}")
-        return pd.DataFrame()
+    if not news_data:
+        print(f"No Yahoo Finance news found for {ticker}")
+        
+    return pd.DataFrame(news_data, columns=['date', 'time', 'headline', 'source'])
 
 
 def get_stock_price_data(ticker, days=90):

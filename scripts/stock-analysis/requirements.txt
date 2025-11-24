@@ -14,7 +14,8 @@ yfinance>=0.2.28
 nltk>=3.8.1
 
 # Database
-supabase>=2.0.0
+supabase-py>=2.0.0
+postgrest>=0.10.6
 
 # Environment variables
 python-dotenv>=1.0.0
@@ -22,3 +23,6 @@ python-dotenv>=1.0.0
 # Data visualization (optional, for local testing)
 matplotlib>=3.7.0
 seaborn>=0.12.0
+
+# Date handling
+pytz>=2023.3

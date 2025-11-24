@@ -9,82 +9,69 @@ from config import MAX_STOCKS
 
 
 def export_stock_data_to_json(ticker, name, price_data, prediction_result, sentiment_data):
-    """Export stock data to JSON format"""
+    """Export stock data to JSON format matching database schema"""
     if price_data is None or prediction_result is None:
-        print(f"Insufficient data to export for {ticker}")
-        return False
+        return None
     
     try:
-        # Create output directory
-        os.makedirs('stock_data', exist_ok=True)
+        # Convert price data to historical format
+        historical_data = [
+            {
+                'date': date.strftime('%Y-%m-%d'),
+                'price': float(price)
+            }
+            for date, price in price_data['Close'].items()
+        ]
+
+        # Format prediction data
+        prediction_dates = pd.date_range(
+            start=price_data.index[-1] + pd.Timedelta(days=1),
+            periods=len(prediction_result['predictions'])
+        )
         
-        # Historical price data
-        historical_data = []
-        for date, row in price_data.iterrows():
-            historical_data.append({
-                "date": date.strftime('%Y-%m-%d'),
-                "price": round(float(row['Close']), 2),
-                "volume": int(row['Volume']) if 'Volume' in row else 0
-            })
-        
-        # Prediction data
-        prediction_series = []
-        upper_bound = []
-        lower_bound = []
-        
-        for date, row in prediction_result['prediction_df'].iterrows():
-            price = float(row['Price'])
-            prediction_series.append({
-                "date": date.strftime('%Y-%m-%d'),
-                "price": round(price, 2)
-            })
-            upper_bound.append({
-                "date": date.strftime('%Y-%m-%d'),
-                "price": round(price * 1.10, 2)  # 10% upper bound
-            })
-            lower_bound.append({
-                "date": date.strftime('%Y-%m-%d'),
-                "price": round(price * 0.90, 2)  # 10% lower bound
-            })
-        
-        # Create JSON structure
-        json_data = {
-            "ticker": ticker,
-            "name": name,
-            "sentiment": {
-                "score": sentiment_data['avg_sentiment'],
-                "category": sentiment_data['sentiment_category'],
-                "investment_score": sentiment_data['investment_score'],
-                "news_count": sentiment_data['news_count'],
-                "bullish_count": sentiment_data['bullish_count'],
-                "neutral_count": sentiment_data['neutral_count'],
-                "bearish_count": sentiment_data['bearish_count']
-            },
-            "current_price": prediction_result['current_price'],
-            "predicted_price_30d": prediction_result['predicted_price_30d'],
-            "price_change_pct": prediction_result['price_change_pct'],
-            "historical_data": historical_data[-90:],  # Last 90 days
-            "prediction": {
-                "data": prediction_series,
-                "upper_bound": upper_bound,
-                "lower_bound": lower_bound
-            },
-            "last_updated": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        prediction_data = {
+            'data': [
+                {
+                    'date': date.strftime('%Y-%m-%d'),
+                    'price': float(price)
+                }
+                for date, price in zip(prediction_dates, prediction_result['predictions'])
+            ],
+            'upper_bound': [
+                {
+                    'date': date.strftime('%Y-%m-%d'),
+                    'price': float(price)
+                }
+                for date, price in zip(prediction_dates, prediction_result['upper_bound'])
+            ],
+            'lower_bound': [
+                {
+                    'date': date.strftime('%Y-%m-%d'),
+                    'price': float(price)
+                }
+                for date, price in zip(prediction_dates, prediction_result['lower_bound'])
+            ]
         }
         
-        # Save to file
-        filename = os.path.join('stock_data', f'{ticker}_data.json')
-        with open(filename, 'w') as f:
-            json.dump(json_data, f, indent=2)
+        # Create final stock data structure
+        stock_data = {
+            'ticker': ticker,
+            'name': name,
+            'sentiment': {
+                'score': float(sentiment_data['compound']),
+                'category': sentiment_data['category'],
+                'investment_score': float(sentiment_data['investment_score'])
+            },
+            'historical_data': historical_data,
+            'prediction': prediction_data,
+            'last_updated': datetime.now().isoformat()
+        }
         
-        print(f"✓ Exported {ticker} data to JSON")
-        return True
-    
+        return stock_data
+        
     except Exception as e:
-        print(f"Error exporting {ticker} to JSON: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
+        print(f"Error exporting data for {ticker}: {str(e)}")
+        return None
 
 
 def generate_master_stocks_json(ranked_stocks, shocking_predictions):
@@ -139,13 +126,6 @@ def rank_stocks_by_investment_potential(results_list):
     # Sort by investment score
     ranked_df = df.sort_values('investment_score', ascending=False).reset_index(drop=True)
     ranked_df['rank'] = ranked_df.index + 1
-    
-    # Generate markdown report
-    _generate_ranking_report(ranked_df)
-    
-    # Save CSV
-    os.makedirs('reports', exist_ok=True)
-    ranked_df.to_csv('reports/investment_ranking.csv', index=False)
     
     return ranked_df
 
@@ -276,18 +256,10 @@ def analyze_top_stocks(max_stocks=None):
     shocking_predictions = generate_shocking_predictions(all_predictions_data, top_n=5)
     print(f"✓ Identified {len(shocking_predictions['all_shocking'])} shocking predictions\n")
     
-    # Step 5: Generate master JSON
-    print("Step 5: Generating master JSON...")
-    generate_master_stocks_json(ranked_stocks, shocking_predictions)
-    
     print(f"\n{'='*60}")
     print(f"Analysis Complete!")
     print(f"{'='*60}\n")
-    print(f"Results saved to:")
-    print(f"  - stock_data/master_stocks.json")
-    print(f"  - stock_data/[TICKER]_data.json")
-    print(f"  - reports/investment_ranking_report.md")
-    print(f"  - reports/investment_ranking.csv\n")
+    print(f"✓ Data ready for database update\n")
     
     return ranked_stocks, shocking_predictions
 
