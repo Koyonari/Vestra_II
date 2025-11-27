@@ -124,7 +124,8 @@ class DatabaseManager:
         
         print(f"\nWriting {len(ranked_stocks)} stocks to database...")
         
-        for idx, stock in ranked_stocks.iterrows():
+        # Ensure unique ranks 1-N
+        for rank, (idx, stock) in enumerate(ranked_stocks.iterrows(), start=1):
             try:
                 # Prepare stock data
                 stock_data = {
@@ -134,7 +135,7 @@ class DatabaseManager:
                     'sentiment_category': stock.get('sentiment_category', 'Neutral'),
                     'investment_score': float(stock.get('investment_score', 0)),
                     'news_count': int(stock.get('news_count', 0)),
-                    'rank': idx + 1,  # 1-based ranking
+                    'rank': rank,  # Sequential 1-based ranking starting from 1
                     'historical_data': stock.get('historical_data', []),
                     'prediction': stock.get('prediction', {
                         'data': [],

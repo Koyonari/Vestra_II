@@ -114,7 +114,7 @@ def generate_master_stocks_json(ranked_stocks, shocking_predictions):
 
 
 def rank_stocks_by_investment_potential(results_list):
-    """Rank stocks by investment potential"""
+    """Rank stocks by prediction change percentage (highest to lowest)"""
     # Filter out None results
     valid_results = [r for r in results_list if r is not None]
     
@@ -125,8 +125,8 @@ def rank_stocks_by_investment_potential(results_list):
     # Create DataFrame
     df = pd.DataFrame(valid_results)
     
-    # Sort by investment score
-    ranked_df = df.sort_values('investment_score', ascending=False).reset_index(drop=True)
+    # Sort by prediction change percentage (descending - highest to lowest)
+    ranked_df = df.sort_values('price_change_pct', ascending=False).reset_index(drop=True)
     ranked_df['rank'] = ranked_df.index + 1
     
     return ranked_df
@@ -139,31 +139,33 @@ def _generate_ranking_report(ranked_df):
     report += f"**Total Stocks Analyzed:** {len(ranked_df)}\n\n"
     
     # Top 10 recommendations
-    report += "## Top 10 Investment Opportunities\n\n"
+    report += "## Top 10 Predicted Price Changes\n\n"
     top_10 = ranked_df.head(10)
     
     for _, row in top_10.iterrows():
         report += f"{int(row['rank'])}. **{row['ticker']}** - {row['name']}\n"
+        report += f"   - Predicted Change: {row['price_change_pct']:.2f}%\n"
         report += f"   - Investment Score: {row['investment_score']:.2f}/100\n"
         report += f"   - Sentiment: {row['sentiment_category']} ({row['avg_sentiment']:.4f})\n"
         report += f"   - News Articles: {row['news_count']}\n\n"
     
     # Full ranking table
-    report += "## Complete Rankings\n\n"
-    report += "| Rank | Ticker | Company | Score | Sentiment | News |\n"
-    report += "|------|--------|---------|-------|-----------|------|\n"
+    report += "## Complete Rankings (by Prediction Change %)\n\n"
+    report += "| Rank | Ticker | Company | Prediction % | Investment Score | Sentiment | News |\n"
+    report += "|------|--------|---------|--------------|-----------------|-----------|------|\n"
     
     for _, row in ranked_df.iterrows():
         report += f"| {int(row['rank'])} | {row['ticker']} | {row['name'][:30]} | "
-        report += f"{row['investment_score']:.2f} | {row['sentiment_category']} | "
-        report += f"{row['news_count']} |\n"
+        report += f"{row['price_change_pct']:.2f}% | {row['investment_score']:.2f} | "
+        report += f"{row['sentiment_category']} | {row['news_count']} |\n"
     
     # Methodology
     report += "\n## Methodology\n\n"
-    report += "Investment scores (0-100) combine:\n"
-    report += "- Sentiment analysis of recent news articles\n"
-    report += "- Historical price momentum\n"
-    report += "- News volume and sentiment strength\n\n"
+    report += "Stocks are ranked by predicted price change percentage (highest to lowest):\n"
+    report += "- Prediction change = (Predicted price - Current price) / Current price * 100%\n"
+    report += "- Based on machine learning model trained on historical price and sentiment data\n"
+    report += "- Investment scores combine sentiment analysis and news volume\n"
+    report += "- Historical price momentum and technical indicators also influence predictions\n\n"
     report += "**Disclaimer:** This analysis is for informational purposes only. "
     report += "Always conduct thorough research and consult with financial advisors.\n"
     
